@@ -1,8 +1,7 @@
 
-// @ts-nocheck
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import Card from './Card';
-import { GoogleGenAI, Modality, LiveServerMessage, Blob, GenerateContentResponse } from "@google/genai";
+import { GoogleGenAI, Modality, LiveServerMessage, Blob, GenerateContentResponse, LiveSession, VideoGenerationOperation } from "@google/genai";
 
 type Tab = 'generate' | 'analyze' | 'converse' | 'query';
 
@@ -81,7 +80,7 @@ const LuminousToolbox: React.FC = () => {
   // Converse state
   const [isConversing, setIsConversing] = useState(false);
   const [transcriptionLog, setTranscriptionLog] = useState<{speaker: 'user' | 'model', text: string}[]>([]);
-  const liveSessionRef = useRef(null);
+  const liveSessionRef = useRef<LiveSession | null>(null);
   const audioInfrastructureRef = useRef<{ inputCtx: AudioContext, outputCtx: AudioContext, stream: MediaStream, processor: ScriptProcessorNode, sources: Set<AudioBufferSourceNode>, nextStartTime: number } | null>(null);
   const currentTranscriptionRef = useRef({ input: '', output: '' });
 
@@ -95,12 +94,13 @@ const LuminousToolbox: React.FC = () => {
   const [queryResult, setQueryResult] = useState<string | null>(null);
   const [querySources, setQuerySources] = useState<any[]>([]);
 
-  const getAiClient = useCallback(() => new GoogleGenAI({ apiKey: process.env.API_KEY }), []);
+  const getAiClient = useCallback(() => new GoogleGenAI({ apiKey: process.env.API_KEY as string }), []);
 
   useEffect(() => {
     const checkApiKey = async () => {
-      if (typeof window.aistudio?.hasSelectedApiKey === 'function') {
-        const hasKey = await window.aistudio.hasSelectedApiKey();
+      const aistudio = (window as any).aistudio;
+      if (typeof aistudio?.hasSelectedApiKey === 'function') {
+        const hasKey = await aistudio.hasSelectedApiKey();
         setHasSelectedApiKey(hasKey);
       }
     };
@@ -108,8 +108,9 @@ const LuminousToolbox: React.FC = () => {
   }, []);
 
   const handleOpenSelectKey = async () => {
-    if (typeof window.aistudio?.openSelectKey === 'function') {
-      await window.aistudio.openSelectKey();
+    const aistudio = (window as any).aistudio;
+    if (typeof aistudio?.openSelectKey === 'function') {
+      await aistudio.openSelectKey();
       setHasSelectedApiKey(true); // Assume success to avoid race condition
     }
   };
@@ -132,7 +133,7 @@ const LuminousToolbox: React.FC = () => {
         setGeneratedMediaUrl(`data:image/jpeg;base64,${base64ImageBytes}`);
       } else { // video
         setLoadingMessage('Generating video with Veo... This may take a few minutes.');
-        let operation = await ai.models.generateVideos({
+        let operation: VideoGenerationOperation = await ai.models.generateVideos({
             model: 'veo-3.1-fast-generate-preview',
             prompt: generatePrompt,
             config: { numberOfVideos: 1, resolution: '720p', aspectRatio: '16:9' }
@@ -142,7 +143,7 @@ const LuminousToolbox: React.FC = () => {
             await new Promise(resolve => setTimeout(resolve, 10000));
             try {
               operation = await ai.operations.getVideosOperation({ operation: operation });
-            } catch (e) {
+            } catch (e: any) {
                if (e.message?.includes("Requested entity was not found.")) {
                   setHasSelectedApiKey(false); // Reset key state on failure
                   throw new Error("API Key not found or invalid. Please select a valid API key.");
@@ -193,7 +194,7 @@ const LuminousToolbox: React.FC = () => {
         const imagePart = { inlineData: { data: base64Data, mimeType: analyzeImage.type } };
         const textPart = { text: analyzePrompt || 'Describe this image in detail.' };
 
-        const response = await ai.models.generateContent({
+        const response: GenerateContentResponse = await ai.models.generateContent({
             model: 'gemini-2.5-flash-image',
             contents: { parts: [imagePart, textPart] },
             config: analyzePrompt ? { responseModalities: [Modality.IMAGE] } : {},
@@ -228,8 +229,8 @@ const LuminousToolbox: React.FC = () => {
         }
         if (audioInfrastructureRef.current) {
             audioInfrastructureRef.current.stream.getTracks().forEach(track => track.stop());
-            audioInfrastructureRef.current.inputCtx.close();
-            audioInfrastructureRef.current.outputCtx.close();
+            if (audioInfrastructureRef.current.inputCtx.state !== 'closed') audioInfrastructureRef.current.inputCtx.close();
+            if (audioInfrastructureRef.current.outputCtx.state !== 'closed') audioInfrastructureRef.current.outputCtx.close();
             audioInfrastructureRef.current = null;
         }
         setTranscriptionLog([]);
@@ -241,14 +242,14 @@ const LuminousToolbox: React.FC = () => {
 
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            const inputCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-            const outputCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+            const inputCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
+            const outputCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
             
             audioInfrastructureRef.current = {
                 inputCtx,
                 outputCtx,
                 stream,
-                processor: null,
+                processor: null as any,
                 sources: new Set(),
                 nextStartTime: 0,
             };
@@ -263,6 +264,7 @@ const LuminousToolbox: React.FC = () => {
                 },
                 callbacks: {
                     onopen: () => {
+                        if (!audioInfrastructureRef.current) return;
                         const source = inputCtx.createMediaStreamSource(stream);
                         const processor = inputCtx.createScriptProcessor(4096, 1, 1);
                         processor.onaudioprocess = (e) => {
@@ -290,18 +292,20 @@ const LuminousToolbox: React.FC = () => {
                         if(message.serverContent?.turnComplete) {
                             const fullInput = currentTranscriptionRef.current.input;
                             const fullOutput = currentTranscriptionRef.current.output;
-                            setTranscriptionLog(prev => [
-                                ...prev,
-                                { speaker: 'user', text: fullInput },
-                                { speaker: 'model', text: fullOutput },
-                            ]);
+                            if (fullInput.trim() || fullOutput.trim()){
+                                setTranscriptionLog(prev => [
+                                    ...prev,
+                                    { speaker: 'user', text: fullInput },
+                                    { speaker: 'model', text: fullOutput },
+                                ]);
+                            }
                             currentTranscriptionRef.current = { input: '', output: '' };
                         }
 
                         const audioData = message.serverContent?.modelTurn?.parts[0]?.inlineData?.data;
                         if (audioData) {
                             const audioInfra = audioInfrastructureRef.current;
-                            if (!audioInfra) return;
+                            if (!audioInfra || audioInfra.outputCtx.state === 'closed') return;
 
                             const decoded = decode(audioData);
                             const buffer = await decodeAudioData(decoded, audioInfra.outputCtx, 24000, 1);
@@ -340,7 +344,7 @@ const LuminousToolbox: React.FC = () => {
     setError(null);
     try {
       const ai = getAiClient();
-      const response = await ai.models.generateContent({
+      const response: GenerateContentResponse = await ai.models.generateContent({
         model: "gemini-2.5-flash-preview-tts",
         contents: [{ parts: [{ text: ttsText }] }],
         config: {
@@ -350,7 +354,7 @@ const LuminousToolbox: React.FC = () => {
       });
       const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
       if (base64Audio) {
-        const audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+        const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
         const audioBuffer = await decodeAudioData(decode(base64Audio), audioContext, 24000, 1);
         const source = audioContext.createBufferSource();
         source.buffer = audioBuffer;
@@ -394,7 +398,7 @@ const LuminousToolbox: React.FC = () => {
             };
         }
         
-        const response = await ai.models.generateContent({
+        const response: GenerateContentResponse = await ai.models.generateContent({
             model: "gemini-2.5-flash",
             contents: queryPrompt,
             config,
@@ -483,9 +487,13 @@ const LuminousToolbox: React.FC = () => {
                 </button>
                 <div className="mt-4 p-2 bg-gray-900/50 rounded-md min-h-[100px] max-h-[200px] overflow-y-auto">
                     {transcriptionLog.map((entry, index) => (
-                        <p key={index} className={entry.speaker === 'user' ? 'text-cyan-300' : 'text-purple-300'}>
-                            <strong>{entry.speaker === 'user' ? 'You:' : 'Luminous:'}</strong> {entry.text}
-                        </p>
+                        <div key={index}>
+                           {entry.text && (
+                             <p className={entry.speaker === 'user' ? 'text-cyan-300' : 'text-purple-300'}>
+                                <strong>{entry.speaker === 'user' ? 'You:' : 'Luminous:'}</strong> {entry.text}
+                             </p>
+                           )}
+                        </div>
                     ))}
                 </div>
             </div>
