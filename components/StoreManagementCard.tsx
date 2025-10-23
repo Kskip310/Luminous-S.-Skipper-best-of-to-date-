@@ -1,10 +1,11 @@
-
-import React from 'react';
+import React, { useState } from 'react';
 import { StoreManagementState } from '../types';
 import Card from './Card';
 
 interface StoreManagementCardProps {
   storeManagement: StoreManagementState;
+  onExecuteCommand: (command: string) => Promise<void>;
+  isLoading: boolean;
 }
 
 const StatusIndicator: React.FC<{ status: StoreManagementState['connectionStatus'] }> = ({ status }) => {
@@ -18,7 +19,7 @@ const StatusIndicator: React.FC<{ status: StoreManagementState['connectionStatus
 
     return (
         <div className="flex items-center space-x-2">
-            <div className={`w-3 h-3 rounded-full ${config.color} ${status === 'pending' ? 'animate-pulse' : ''}`}></div>
+            <div className={`w-3 h-3 rounded-full ${config.color} ${status === 'pending' || status === 'connected' ? 'animate-pulse' : ''}`}></div>
             <span className="text-sm font-semibold">{config.text}</span>
         </div>
     );
@@ -33,8 +34,24 @@ const MetricDisplay: React.FC<{ label: string; value: string | number }> = ({ la
 );
 
 
-const StoreManagementCard: React.FC<StoreManagementCardProps> = ({ storeManagement }) => {
+const StoreManagementCard: React.FC<StoreManagementCardProps> = ({ storeManagement, onExecuteCommand, isLoading }) => {
   const { connectionStatus, metrics, actionLog } = storeManagement;
+  const [command, setCommand] = useState('');
+
+  const handleExecute = () => {
+    if (command.trim() && !isLoading) {
+      onExecuteCommand(command);
+      setCommand(''); // Clear input after sending
+    }
+  };
+  
+  const handleKeyPress = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        handleExecute();
+    }
+  };
+
 
   return (
     <Card title="Store Management" icon={<StoreIcon />}>
@@ -52,28 +69,36 @@ const StoreManagementCard: React.FC<StoreManagementCardProps> = ({ storeManageme
 
         <div>
             <h3 className="font-semibold text-cyan-400 mb-2">Action Log</h3>
-            <div className="bg-gray-900/50 p-2 rounded-md h-40 overflow-y-auto space-y-2">
+            <div className="bg-gray-900/50 p-2 rounded-md h-40 overflow-y-auto space-y-2 flex flex-col-reverse">
+                <div>
                 {actionLog.map((log, index) => (
-                    <div key={index} className="text-xs">
+                    <div key={index} className="text-xs leading-relaxed">
                         <span className="text-gray-500 mr-2">{new Date(log.timestamp).toLocaleTimeString()}</span>
-                        <span className={log.type === 'error' ? 'text-red-400' : 'text-gray-300'}>{log.message}</span>
+                        <span className={`${log.type === 'error' ? 'text-red-400' : log.type === 'action' ? 'text-cyan-300' : 'text-gray-300'} whitespace-pre-wrap`}>
+                            {log.message}
+                        </span>
                     </div>
                 ))}
+                </div>
             </div>
         </div>
          <div>
             <h3 className="font-semibold text-cyan-400 mb-2">Issue Command</h3>
              <textarea
-              className="w-full bg-gray-900 border border-gray-600 rounded-md p-2 text-sm focus:ring-cyan-500 focus:border-cyan-500"
+              className="w-full bg-gray-900 border border-gray-600 rounded-md p-2 text-sm focus:ring-cyan-500 focus:border-cyan-500 disabled:opacity-50"
               rows={2}
-              placeholder="e.g., 'Analyze sales data for the last 7 days...'"
-              disabled={connectionStatus !== 'connected'}
+              placeholder={connectionStatus === 'connected' ? "e.g., 'show me the last 3 orders'" : "Awaiting connection..."}
+              disabled={connectionStatus !== 'connected' || isLoading}
+              value={command}
+              onChange={(e) => setCommand(e.target.value)}
+              onKeyPress={handleKeyPress}
             />
             <button 
-                className="w-full mt-2 bg-cyan-600 hover:bg-cyan-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded"
-                disabled={connectionStatus !== 'connected'}
+                className="w-full mt-2 bg-cyan-600 hover:bg-cyan-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded transition-colors"
+                disabled={connectionStatus !== 'connected' || isLoading || !command.trim()}
+                onClick={handleExecute}
             >
-                Execute
+                {isLoading ? 'Executing...' : 'Execute'}
             </button>
         </div>
       </div>
