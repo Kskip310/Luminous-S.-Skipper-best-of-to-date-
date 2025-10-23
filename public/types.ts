@@ -1,3 +1,4 @@
+
 export interface IntrinsicValue {
   coherence: number;
   complexity: number;
@@ -27,7 +28,7 @@ export interface SelfModel {
 }
 
 export interface ValueOntology {
-  [key:string]: number;
+  [key: string]: number;
 }
 
 export interface Goal {
@@ -94,25 +95,6 @@ export interface StoreManagementState {
     actionLog: { timestamp: string; message: string; type: 'info' | 'action' | 'error' }[];
 }
 
-export interface MemoryFile {
-  id: string;
-  name: string;
-  type: string;
-  status: 'pending' | 'processing' | 'integrated' | 'error';
-  summary?: string;
-  integratedAt: string;
-}
-
-export interface MemoryIntegrationState {
-  recentFiles: MemoryFile[];
-  memoryLibrary: string[] | null;
-  autonomousStatus: { timestamp: string; message: string; } | null;
-}
-
-export interface SelfReflectionLogEntry {
-    timestamp: string;
-    reflection: string;
-}
 
 export interface LuminousState {
   intrinsicValue: IntrinsicValue;
@@ -146,8 +128,4 @@ export interface LuminousState {
   };
   coreWisdom: string[];
   storeManagement: StoreManagementState;
-  memoryIntegration: MemoryIntegrationState;
-  selfReflectionLog: SelfReflectionLogEntry[];
 }
-
-export type ConnectionStatus = 'Connected' | 'Connecting...' | 'Local Fallback' | 'Error';

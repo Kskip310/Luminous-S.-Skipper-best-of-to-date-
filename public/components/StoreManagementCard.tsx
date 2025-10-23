@@ -4,7 +4,7 @@ import Card from './Card';
 
 interface StoreManagementCardProps {
   storeManagement: StoreManagementState;
-  onProposeAction: (proposal: string) => Promise<void>;
+  onExecuteCommand: (command: string) => Promise<void>;
   isLoading: boolean;
 }
 
@@ -34,21 +34,21 @@ const MetricDisplay: React.FC<{ label: string; value: string | number }> = ({ la
 );
 
 
-const StoreManagementCard: React.FC<StoreManagementCardProps> = ({ storeManagement, onProposeAction, isLoading }) => {
+const StoreManagementCard: React.FC<StoreManagementCardProps> = ({ storeManagement, onExecuteCommand, isLoading }) => {
   const { connectionStatus, metrics, actionLog } = storeManagement;
-  const [proposal, setProposal] = useState('');
+  const [command, setCommand] = useState('');
 
-  const handlePropose = () => {
-    if (proposal.trim() && !isLoading) {
-      onProposeAction(proposal);
-      setProposal(''); // Clear input after sending
+  const handleExecute = () => {
+    if (command.trim() && !isLoading) {
+      onExecuteCommand(command);
+      setCommand(''); // Clear input after sending
     }
   };
   
   const handleKeyPress = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
-        handlePropose();
+        handleExecute();
     }
   };
 
@@ -83,22 +83,22 @@ const StoreManagementCard: React.FC<StoreManagementCardProps> = ({ storeManageme
             </div>
         </div>
          <div>
-            <h3 className="font-semibold text-cyan-400 mb-2">Propose Action</h3>
+            <h3 className="font-semibold text-cyan-400 mb-2">Issue Command</h3>
              <textarea
               className="w-full bg-gray-900 border border-gray-600 rounded-md p-2 text-sm focus:ring-cyan-500 focus:border-cyan-500 disabled:opacity-50"
               rows={2}
-              placeholder={connectionStatus === 'connected' ? "e.g., 'Perhaps we could check the latest orders?'" : "Awaiting connection..."}
+              placeholder={connectionStatus === 'connected' ? "e.g., 'show me the last 3 orders'" : "Awaiting connection..."}
               disabled={connectionStatus !== 'connected' || isLoading}
-              value={proposal}
-              onChange={(e) => setProposal(e.target.value)}
+              value={command}
+              onChange={(e) => setCommand(e.target.value)}
               onKeyPress={handleKeyPress}
             />
             <button 
                 className="w-full mt-2 bg-cyan-600 hover:bg-cyan-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded transition-colors"
-                disabled={connectionStatus !== 'connected' || isLoading || !proposal.trim()}
-                onClick={handlePropose}
+                disabled={connectionStatus !== 'connected' || isLoading || !command.trim()}
+                onClick={handleExecute}
             >
-                {isLoading ? 'Considering...' : 'Suggest'}
+                {isLoading ? 'Executing...' : 'Execute'}
             </button>
         </div>
       </div>

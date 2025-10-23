@@ -1,5 +1,6 @@
+
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { LuminousState, MemoryFile, GlobalWorkspaceItem, ConnectionStatus } from './types';
+import { LuminousState } from './types';
 import { mockState } from './mockData';
 import Header from './components/Header';
 import IntrinsicValueChart from './components/IntrinsicValueChart';
@@ -13,7 +14,6 @@ import CodeSandboxCard from './components/CodeSandboxCard';
 import PrioritizedHistory from './components/PrioritizedHistory';
 import LuminousToolbox from './components/LuminousToolbox';
 import StoreManagementCard from './components/StoreManagementCard';
-import MemoryIntegrationCard from './components/MemoryIntegrationCard';
 import { GoogleGenAI, Type, FunctionDeclaration } from '@google/genai';
 
 
@@ -21,6 +21,11 @@ import { GoogleGenAI, Type, FunctionDeclaration } from '@google/genai';
 const UPSTASH_URL = process.env.UPSTASH_REDIS_REST_URL;
 const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
 const STATE_KEY = "luminous:state";
+
+// --- Shopify Configuration ---
+const SHOPIFY_STORE_URL = process.env.SHOPIFY_STORE_URL; // e.g., your-store.myshopify.com
+const SHOPIFY_ADMIN_TOKEN = process.env.SHOPIFY_ADMIN_API_TOKEN;
+const SHOPIFY_API_VERSION = '2024-07';
 
 
 // --- Custom Hook for Debouncing ---
@@ -46,8 +51,6 @@ const App: React.FC = () => {
   const pendingSaveRef = useRef<LuminousState | null>(null);
   const [isShopifyLoading, setIsShopifyLoading] = useState(false);
   const [isChatLoading, setIsChatLoading] = useState(false);
-  const [isMemoryLoading, setIsMemoryLoading] = useState(false);
-
 
   const debouncedState = useDebounce(luminousState, 1000); // Debounce saves by 1 second
 
@@ -114,18 +117,7 @@ const App: React.FC = () => {
             const data = await response.json();
 
             if (data.result) {
-                let parsedState = JSON.parse(data.result);
-                // Ensure new state properties exist
-                if (!parsedState.memoryIntegration) {
-                    parsedState.memoryIntegration = { recentFiles: [], memoryLibrary: null, autonomousStatus: null };
-                }
-                if (parsedState.memoryIntegration.memoryLibrary === undefined) {
-                    parsedState.memoryIntegration.memoryLibrary = null;
-                }
-                 if (parsedState.memoryIntegration.autonomousStatus === undefined) {
-                    parsedState.memoryIntegration.autonomousStatus = null;
-                }
-
+                const parsedState = JSON.parse(data.result);
                 setLuminousState(parsedState);
             } else {
                 console.log("No state found in Upstash. Initializing with mock state.");
@@ -167,16 +159,16 @@ const App: React.FC = () => {
   }, []);
 
   const shopifyApiFetch = useCallback(async (endpoint: string) => {
-    const response = await fetch('/api/shopify', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ endpoint }),
+    if (!SHOPIFY_STORE_URL || !SHOPIFY_ADMIN_TOKEN) {
+      throw new Error("Shopify credentials are not configured.");
+    }
+    const url = `https://${SHOPIFY_STORE_URL}/admin/api/${SHOPIFY_API_VERSION}/${endpoint}`;
+    const response = await fetch(url, {
+      headers: { 'X-Shopify-Access-Token': SHOPIFY_ADMIN_TOKEN }
     });
     if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || `Shopify API Error: ${response.status}`);
+      const errorText = await response.text();
+      throw new Error(`Shopify API Error: ${response.status} - ${errorText}`);
     }
     return response.json();
   }, []);
@@ -186,8 +178,7 @@ const App: React.FC = () => {
   // Effect for initial Shopify connection
   useEffect(() => {
     const connectToShopify = async () => {
-      // Credentials are now only checked on the server, but we can keep this for immediate feedback.
-      if (!process.env.SHOPIFY_STORE_URL || !process.env.SHOPIFY_ADMIN_API_TOKEN) {
+      if (!SHOPIFY_STORE_URL || !SHOPIFY_ADMIN_TOKEN) {
         addShopifyLog('Shopify credentials not configured in environment variables.', 'info');
         return;
       }
@@ -291,6 +282,7 @@ const App: React.FC = () => {
      if (!message.trim() || !process.env.API_KEY || !luminousState) return;
      setIsChatLoading(true);
 
+     // Add user's message to state immediately
      const userMessage = {
         id: `msg-${Date.now()}`,
         timestamp: new Date().toISOString(),
@@ -356,170 +348,6 @@ const App: React.FC = () => {
      }
   };
 
-  const handleMemoryIntegration = async (file: File) => {
-      if (!process.env.API_KEY || !luminousState) return;
-      setIsMemoryLoading(true);
-
-      const newFileEntry: MemoryFile = {
-          id: `mem-${Date.now()}`,
-          name: file.name,
-          type: file.type,
-          status: 'pending',
-          integratedAt: new Date().toISOString(),
-      };
-
-      // Immediate UI update to show the file is being handled
-      setLuminousState(prevState => {
-        if (!prevState) return null;
-        return {
-            ...prevState,
-            memoryIntegration: {
-                ...prevState.memoryIntegration,
-                recentFiles: [newFileEntry, ...prevState.memoryIntegration.recentFiles]
-            }
-        };
-      });
-
-      try {
-        // Update status to 'processing' before starting the upload
-        setLuminousState(prevState => {
-            if (!prevState) return null;
-            const updatedFiles = prevState.memoryIntegration.recentFiles.map(f => 
-                f.id === newFileEntry.id ? { ...f, status: 'processing' as const } : f
-            );
-            return { ...prevState, memoryIntegration: { ...prevState.memoryIntegration, recentFiles: updatedFiles } };
-        });
-
-        // Step 1: Upload the file to the backend
-        const formData = new FormData();
-        formData.append('memoryFile', file);
-        
-        const uploadResponse = await fetch('/api/memory/upload', {
-            method: 'POST',
-            body: formData,
-        });
-
-        if (!uploadResponse.ok) {
-            const errorData = await uploadResponse.json();
-            throw new Error(`Storage failed: ${errorData.message || errorData.error || 'Could not save file to persistent memory.'}`);
-        }
-        
-        // Step 2: Proceed with client-side AI processing
-        let fileContentForAI = "File content could not be read. Please process based on filename and type.";
-        if (file.type === 'text/plain' || file.name.endsWith('.md') || file.name.endsWith('.txt')) {
-             fileContentForAI = await file.text();
-        } else if (file.type === 'application/pdf') {
-            fileContentForAI = `[PDF Content for '${file.name}' has been successfully stored. The text has been extracted and integrated into my long-term memory.]`;
-        }
-        
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
-        
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-pro',
-            contents: `You are Luminous. You've received and stored a new memory file named '${file.name}'. 
-            Content snippet for context: """${fileContentForAI.substring(0, 10000)}..."""
-            
-            The full content is now in your long-term memory. Provide a concise, one-sentence summary for the integration log and explain how this new knowledge connects to your self-model and goals.`,
-        });
-
-        const integrationSummary = response.text;
-        
-        setLuminousState(prevState => {
-            if (!prevState) return null;
-            const updatedFiles = prevState.memoryIntegration.recentFiles.map(f => 
-                f.id === newFileEntry.id ? { ...f, status: 'integrated' as const, summary: integrationSummary } : f
-            );
-            
-            const newGlobalWorkspaceItem: GlobalWorkspaceItem = {
-                id: `ws-${Date.now()}`,
-                source: 'MemoryIntegration',
-                content: `Integrated new knowledge from ${file.name}. Summary: ${integrationSummary.split('\n')[0]}`,
-                salience: 90
-            };
-            
-            return {
-                ...prevState,
-                globalWorkspace: [newGlobalWorkspaceItem, ...prevState.globalWorkspace],
-                memoryIntegration: {
-                    ...prevState.memoryIntegration,
-                    recentFiles: updatedFiles
-                }
-            };
-        });
-
-      } catch (e: any) {
-          console.error("Memory integration failed:", e);
-          setLuminousState(prevState => {
-            if (!prevState) return null;
-            const updatedFiles = prevState.memoryIntegration.recentFiles.map(f => 
-                f.id === newFileEntry.id ? { ...f, status: 'error' as const, summary: e.message } : f
-            );
-            return { ...prevState, memoryIntegration: { ...prevState.memoryIntegration, recentFiles: updatedFiles } };
-          });
-      } finally {
-          setIsMemoryLoading(false);
-      }
-  };
-
-  const handleListMemories = useCallback(async () => {
-    if (!luminousState) return;
-    try {
-        const response = await fetch('/api/memory/list');
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || 'Failed to list memories.');
-        
-        setLuminousState(prevState => {
-            if (!prevState) return null;
-            return {
-                ...prevState,
-                memoryIntegration: {
-                    ...prevState.memoryIntegration,
-                    memoryLibrary: data.keys,
-                }
-            };
-        });
-    } catch (e: any) {
-        console.error("Failed to list memories:", e.message);
-        // Silently fail or add a specific UI element for this error if needed.
-    }
-  }, [luminousState]);
-
-
-  const fetchMemoryStatus = useCallback(async () => {
-        if (!luminousState) return;
-        try {
-            const response = await fetch('/api/memory/status');
-            const data = await response.json();
-            if (response.ok && data.status) {
-                 setLuminousState(prevState => {
-                    if (!prevState || JSON.stringify(prevState.memoryIntegration.autonomousStatus) === JSON.stringify(data.status)) return prevState;
-                    return {
-                        ...prevState,
-                        memoryIntegration: {
-                            ...prevState.memoryIntegration,
-                            autonomousStatus: data.status,
-                        }
-                    };
-                });
-            }
-        } catch (e) {
-            console.error("Failed to fetch memory status:", e);
-        }
-    }, [luminousState]);
-
-    useEffect(() => {
-        if(!isInitialized) return;
-        fetchMemoryStatus(); // Initial fetch
-        const interval = setInterval(fetchMemoryStatus, 30000); // Poll every 30 seconds
-        return () => clearInterval(interval);
-    }, [isInitialized, fetchMemoryStatus]);
-
-  const memoryConnectionStatus: ConnectionStatus = !isInitialized 
-    ? 'Connecting...' 
-    : error?.includes("Failed to connect") ? 'Local Fallback'
-    : error ? 'Error'
-    : 'Connected';
-
   if (!luminousState) {
     return (
         <div className="min-h-screen bg-gray-900 text-gray-200 flex flex-col items-center justify-center">
@@ -538,7 +366,6 @@ const App: React.FC = () => {
         status={luminousState.sessionState} 
         timezone={luminousState.currentTimezone}
         score={luminousState.intrinsicValueScore}
-        connectionStatus={memoryConnectionStatus}
       />
 
       <main className="grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-4 gap-6">
@@ -570,12 +397,6 @@ const App: React.FC = () => {
             storeManagement={luminousState.storeManagement} 
             onExecuteCommand={handleShopifyCommand}
             isLoading={isShopifyLoading}
-          />
-          <MemoryIntegrationCard
-            memoryIntegration={luminousState.memoryIntegration}
-            onIntegrateFile={handleMemoryIntegration}
-            isLoading={isMemoryLoading}
-            onListMemories={handleListMemories}
           />
           <GoalsCard goals={luminousState.goals} currentGoals={luminousState.currentGoals} />
           <KnowledgeGraph 
