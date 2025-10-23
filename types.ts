@@ -1,4 +1,3 @@
-
 export interface IntrinsicValue {
   coherence: number;
   complexity: number;
@@ -107,8 +106,6 @@ export interface MemoryFile {
 export interface MemoryIntegrationState {
   recentFiles: MemoryFile[];
   memoryLibrary: string[] | null;
-  organizationStatus: 'idle' | 'running' | 'completed' | 'error';
-  organizationResult: string | null;
   autonomousStatus: { timestamp: string; message: string; } | null;
 }
 

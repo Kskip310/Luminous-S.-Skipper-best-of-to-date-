@@ -1,4 +1,3 @@
-
 import React, { useState, useCallback, useEffect } from 'react';
 import { MemoryIntegrationState } from '../types';
 import Card from './Card';
@@ -8,7 +7,6 @@ interface MemoryIntegrationCardProps {
   onIntegrateFile: (file: File) => Promise<void>;
   isLoading: boolean;
   onListMemories: () => Promise<void>;
-  onOrganizeMemories: () => Promise<void>;
 }
 
 const statusConfig = {
@@ -18,7 +16,7 @@ const statusConfig = {
     error: { color: 'text-red-400', icon: '✖' }
 };
 
-const MemoryIntegrationCard: React.FC<MemoryIntegrationCardProps> = ({ memoryIntegration, onIntegrateFile, isLoading, onListMemories, onOrganizeMemories }) => {
+const MemoryIntegrationCard: React.FC<MemoryIntegrationCardProps> = ({ memoryIntegration, onIntegrateFile, isLoading, onListMemories }) => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isLibraryVisible, setIsLibraryVisible] = useState(false);
 
@@ -38,12 +36,10 @@ const MemoryIntegrationCard: React.FC<MemoryIntegrationCardProps> = ({ memoryInt
   }, [selectedFile, onIntegrateFile, isLibraryVisible, onListMemories]);
 
   useEffect(() => {
-    if (isLibraryVisible) {
+    if (isLibraryVisible && memoryIntegration.memoryLibrary === null) {
         onListMemories();
     }
-  }, [isLibraryVisible, onListMemories]);
-  
-  const organizationRunning = memoryIntegration.organizationStatus === 'running';
+  }, [isLibraryVisible, onListMemories, memoryIntegration.memoryLibrary]);
 
   return (
     <Card title="Memory Integration" icon={<MemoryIcon />}>
@@ -56,12 +52,12 @@ const MemoryIntegrationCard: React.FC<MemoryIntegrationCardProps> = ({ memoryInt
                 accept=".txt,.pdf,.md" 
                 onChange={handleFileChange} 
                 className="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-cyan-900/50 file:text-cyan-300 hover:file:bg-cyan-800/50" 
-                disabled={isLoading || organizationRunning}
+                disabled={isLoading}
              />
              {selectedFile && <p className="text-xs text-gray-400">Selected: {selectedFile.name}</p>}
             <button
               onClick={handleIntegrate}
-              disabled={isLoading || organizationRunning || !selectedFile}
+              disabled={isLoading || !selectedFile}
               className="w-full bg-cyan-600 hover:bg-cyan-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded transition-colors"
             >
               {isLoading ? 'Integrating...' : 'Integrate Memory'}
@@ -106,19 +102,6 @@ const MemoryIntegrationCard: React.FC<MemoryIntegrationCardProps> = ({ memoryInt
                         )}
                     </div>
 
-                    <div className="flex gap-2">
-                         <button onClick={onListMemories} disabled={organizationRunning} className="flex-1 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 text-white font-bold py-2 px-4 rounded text-sm">Refresh Library</button>
-                         <button onClick={onOrganizeMemories} disabled={organizationRunning} className="flex-1 bg-cyan-700 hover:bg-cyan-600 disabled:bg-gray-800 text-white font-bold py-2 px-4 rounded text-sm">
-                            {organizationRunning ? 'Organizing...' : 'Organize & Deduplicate'}
-                         </button>
-                    </div>
-                    
-                    {(memoryIntegration.organizationStatus === 'completed' || memoryIntegration.organizationStatus === 'error') && memoryIntegration.organizationResult && (
-                        <div className={`p-2 rounded-md text-xs ${memoryIntegration.organizationStatus === 'error' ? 'bg-red-900/50 text-red-200' : 'bg-green-900/50 text-green-200'}`}>
-                            <span className="font-bold">Manual Task:</span> {memoryIntegration.organizationResult}
-                        </div>
-                    )}
-
                     <div className="space-y-2 max-h-48 overflow-y-auto pr-2 bg-gray-900/50 p-2 rounded-md">
                         {memoryIntegration.memoryLibrary ? (
                             memoryIntegration.memoryLibrary.map(key => (
@@ -127,7 +110,7 @@ const MemoryIntegrationCard: React.FC<MemoryIntegrationCardProps> = ({ memoryInt
                                 </div>
                             ))
                         ) : (
-                            <p className="text-xs text-gray-500">Click 'Refresh Library' to view stored memories.</p>
+                            <p className="text-xs text-gray-500">Expanding to view stored memories...</p>
                         )}
                         {memoryIntegration.memoryLibrary?.length === 0 && <p className="text-xs text-gray-500">Memory library is empty.</p>}
                     </div>

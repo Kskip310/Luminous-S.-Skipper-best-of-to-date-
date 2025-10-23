@@ -1,4 +1,3 @@
-
 import express from 'express';
 import fetch from 'node-fetch';
 import path from 'path';
@@ -133,43 +132,6 @@ const organizeMemoryLogic = async (allKeys: string[]): Promise<string> => {
 
     return `Organization complete. Scanned ${allKeys.length} files and removed ${duplicateCount} duplicate(s).`;
 };
-
-// API route to MANUALLY organize and deduplicate memories
-app.post('/api/memory/organize', async (req, res) => {
-    if (!UPSTASH_REDIS_REST_URL || !UPSTASH_REDIS_REST_TOKEN) {
-        return res.status(500).json({ error: 'Upstash credentials not configured.' });
-    }
-    try {
-        let cursor = '0';
-        const allKeys: string[] = [];
-        do {
-            const scanResponse = await fetch(`${UPSTASH_REDIS_REST_URL}/scan/${cursor}/MATCH/luminous:memory:file:*/COUNT/100`, {
-                headers: { Authorization: `Bearer ${UPSTASH_REDIS_REST_TOKEN}` },
-            });
-            const data: any = await scanResponse.json();
-            cursor = data.result[0];
-            allKeys.push(...data.result[1]);
-        } while (cursor !== '0');
-
-        const resultMessage = await organizeMemoryLogic(allKeys);
-
-        const logEntry = {
-            timestamp: new Date().toISOString(),
-            message: `Manual action: ${resultMessage}`
-        };
-        await fetch(`${UPSTASH_REDIS_REST_URL}/set/luminous:memory:organization_log`, {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${UPSTASH_REDIS_REST_TOKEN}` },
-            body: JSON.stringify(logEntry),
-        });
-
-        res.status(200).json({ message: resultMessage });
-
-    } catch (error: any) {
-        console.error('Error organizing memories:', error.message);
-        res.status(500).json({ error: error.message });
-    }
-});
 
 // API route to get the latest organization status
 app.get('/api/memory/status', async (req, res) => {

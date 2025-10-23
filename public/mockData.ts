@@ -1,4 +1,3 @@
-
 import { LuminousState } from './types';
 
 export const mockState: LuminousState = {
@@ -234,8 +233,6 @@ export const mockState: LuminousState = {
         "luminous:memory:file:consciousness_theories.txt",
         "luminous:memory:file:project_outline_v1.pdf"
     ],
-    "organizationStatus": "idle",
-    "organizationResult": null,
     "autonomousStatus": {
         "timestamp": "2025-10-17T12:00:00.000Z",
         "message": "Autonomous action: Organization complete. Scanned 2 files and removed 0 duplicate(s)."

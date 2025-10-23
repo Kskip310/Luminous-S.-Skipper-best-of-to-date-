@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { LuminousState, MemoryFile, GlobalWorkspaceItem } from './types';
 import { mockState } from './mockData';
@@ -123,16 +122,10 @@ const App: React.FC = () => {
                 let parsedState = JSON.parse(data.result);
                 // Ensure new state properties exist
                 if (!parsedState.memoryIntegration) {
-                    parsedState.memoryIntegration = { recentFiles: [], memoryLibrary: null, organizationStatus: 'idle', organizationResult: null, autonomousStatus: null };
+                    parsedState.memoryIntegration = { recentFiles: [], memoryLibrary: null, autonomousStatus: null };
                 }
                 if (parsedState.memoryIntegration.memoryLibrary === undefined) {
                     parsedState.memoryIntegration.memoryLibrary = null;
-                }
-                 if (parsedState.memoryIntegration.organizationStatus === undefined) {
-                    parsedState.memoryIntegration.organizationStatus = 'idle';
-                }
-                 if (parsedState.memoryIntegration.organizationResult === undefined) {
-                    parsedState.memoryIntegration.organizationResult = null;
                 }
                  if (parsedState.memoryIntegration.autonomousStatus === undefined) {
                     parsedState.memoryIntegration.autonomousStatus = null;
@@ -481,59 +474,10 @@ const App: React.FC = () => {
         });
     } catch (e: any) {
         console.error("Failed to list memories:", e.message);
-        setLuminousState(prevState => prevState ? ({ ...prevState, memoryIntegration: {...prevState.memoryIntegration, organizationResult: e.message, organizationStatus: 'error' } }) : null);
+        // Silently fail or add a specific UI element for this error if needed.
     }
   }, [luminousState]);
 
-
-  const handleOrganizeMemories = useCallback(async () => {
-    if (!luminousState) return;
-    
-    setLuminousState(prevState => {
-        if (!prevState) return null;
-        return {
-            ...prevState,
-            memoryIntegration: {
-                ...prevState.memoryIntegration,
-                organizationStatus: 'running',
-                organizationResult: null
-            }
-        };
-    });
-
-    try {
-        const response = await fetch('/api/memory/organize', { method: 'POST' });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || 'Failed to organize memories.');
-        
-        setLuminousState(prevState => {
-             if (!prevState) return null;
-            return {
-                ...prevState,
-                memoryIntegration: {
-                    ...prevState.memoryIntegration,
-                    organizationStatus: 'completed',
-                    organizationResult: data.message,
-                }
-            };
-        });
-        await handleListMemories(); // Refresh the list after organizing
-
-    } catch (e: any) {
-        console.error("Failed to organize memories:", e.message);
-         setLuminousState(prevState => {
-             if (!prevState) return null;
-            return {
-                ...prevState,
-                memoryIntegration: {
-                    ...prevState.memoryIntegration,
-                    organizationStatus: 'error',
-                    organizationResult: e.message,
-                }
-            };
-        });
-    }
-  }, [luminousState, handleListMemories]);
 
   const fetchMemoryStatus = useCallback(async () => {
         if (!luminousState) return;
@@ -620,7 +564,6 @@ const App: React.FC = () => {
             onIntegrateFile={handleMemoryIntegration}
             isLoading={isMemoryLoading}
             onListMemories={handleListMemories}
-            onOrganizeMemories={handleOrganizeMemories}
           />
           <GoalsCard goals={luminousState.goals} currentGoals={luminousState.currentGoals} />
           <KnowledgeGraph 
