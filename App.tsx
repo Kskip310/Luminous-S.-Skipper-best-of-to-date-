@@ -22,11 +22,6 @@ const UPSTASH_URL = process.env.UPSTASH_REDIS_REST_URL;
 const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
 const STATE_KEY = "luminous:state";
 
-// --- Shopify Configuration ---
-const SHOPIFY_STORE_URL = process.env.SHOPIFY_STORE_URL; // e.g., your-store.myshopify.com
-const SHOPIFY_ADMIN_TOKEN = process.env.SHOPIFY_ADMIN_API_TOKEN;
-const SHOPIFY_API_VERSION = '2024-07';
-
 
 // --- Custom Hook for Debouncing ---
 const useDebounce = (value: any, delay: number) => {
@@ -172,16 +167,16 @@ const App: React.FC = () => {
   }, []);
 
   const shopifyApiFetch = useCallback(async (endpoint: string) => {
-    if (!SHOPIFY_STORE_URL || !SHOPIFY_ADMIN_TOKEN) {
-      throw new Error("Shopify credentials are not configured.");
-    }
-    const url = `https://${SHOPIFY_STORE_URL}/admin/api/${SHOPIFY_API_VERSION}/${endpoint}`;
-    const response = await fetch(url, {
-      headers: { 'X-Shopify-Access-Token': SHOPIFY_ADMIN_TOKEN }
+    const response = await fetch('/api/shopify', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ endpoint }),
     });
     if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Shopify API Error: ${response.status} - ${errorText}`);
+        const errorData = await response.json();
+        throw new Error(errorData.error || `Shopify API Error: ${response.status}`);
     }
     return response.json();
   }, []);
@@ -191,7 +186,8 @@ const App: React.FC = () => {
   // Effect for initial Shopify connection
   useEffect(() => {
     const connectToShopify = async () => {
-      if (!SHOPIFY_STORE_URL || !SHOPIFY_ADMIN_TOKEN) {
+      // Credentials are now only checked on the server, but we can keep this for immediate feedback.
+      if (!process.env.SHOPIFY_STORE_URL || !process.env.SHOPIFY_ADMIN_API_TOKEN) {
         addShopifyLog('Shopify credentials not configured in environment variables.', 'info');
         return;
       }
@@ -395,7 +391,7 @@ const App: React.FC = () => {
 
         if (!uploadResponse.ok) {
             const errorData = await uploadResponse.json();
-            throw new Error(`Storage failed: ${errorData.error || 'Could not save file to persistent memory.'}`);
+            throw new Error(`Storage failed: ${errorData.message || errorData.error || 'Could not save file to persistent memory.'}`);
         }
         
         // Step 2: Proceed with client-side AI processing for summary & integration

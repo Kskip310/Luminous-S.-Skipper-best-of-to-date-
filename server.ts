@@ -1,14 +1,11 @@
+
 import express from 'express';
 import fetch from 'node-fetch';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import multer from 'multer';
 import pdf from 'pdf-parse';
 import * as crypto from 'crypto';
-
-// FIX: Define __dirname for ES Modules as it's not available by default.
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import { fileURLToPath } from 'url';
 
 const app = express();
 const port = process.env.PORT || 8080;
@@ -21,7 +18,7 @@ const { UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN } = process.env;
 
 
 // API route for memory file upload and storage
-app.post('/api/memory/upload', upload.single('memoryFile'), async (req, res) => {
+app.post('/api/memory/upload', upload.single('memoryFile'), async (req, res, next) => {
     if (!UPSTASH_REDIS_REST_URL || !UPSTASH_REDIS_REST_TOKEN) {
         console.error('Upstash credentials missing on server');
         return res.status(500).json({ error: 'Upstash credentials not configured on the server.' });
@@ -58,13 +55,13 @@ app.post('/api/memory/upload', upload.single('memoryFile'), async (req, res) => 
         res.status(200).json({ success: true, message: 'Memory integrated and stored.', key: fileKey });
 
     } catch (error: any) {
-        console.error('Error processing memory upload:', error.message);
-        res.status(500).json({ error: error.message });
+        // Pass error to the global error handler
+        next(error);
     }
 });
 
 // API route to list all memory files
-app.get('/api/memory/list', async (req, res) => {
+app.get('/api/memory/list', async (req, res, next) => {
     if (!UPSTASH_REDIS_REST_URL || !UPSTASH_REDIS_REST_TOKEN) {
         return res.status(500).json({ error: 'Upstash credentials not configured.' });
     }
@@ -82,7 +79,7 @@ app.get('/api/memory/list', async (req, res) => {
 
         res.status(200).json({ keys: allKeys });
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        next(error);
     }
 });
 
@@ -134,7 +131,7 @@ const organizeMemoryLogic = async (allKeys: string[]): Promise<string> => {
 };
 
 // API route to get the latest organization status
-app.get('/api/memory/status', async (req, res) => {
+app.get('/api/memory/status', async (req, res, next) => {
     if (!UPSTASH_REDIS_REST_URL || !UPSTASH_REDIS_REST_TOKEN) {
         return res.status(500).json({ error: 'Upstash credentials not configured.' });
     }
@@ -146,7 +143,7 @@ app.get('/api/memory/status', async (req, res) => {
         const log = data.result ? JSON.parse(data.result) : null;
         res.status(200).json({ status: log });
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        next(error);
     }
 });
 
@@ -195,7 +192,7 @@ runAutonomousMemoryOrganization(); // Run once on startup
 
 
 // API Proxy Route for Shopify
-app.post('/api/shopify', async (req, res) => {
+app.post('/api/shopify', async (req, res, next) => {
     const { endpoint } = req.body;
 
     const { SHOPIFY_STORE_URL, SHOPIFY_ADMIN_API_TOKEN } = process.env;
@@ -230,18 +227,26 @@ app.post('/api/shopify', async (req, res) => {
         res.status(200).json(data);
 
     } catch (error: any) {
-        console.error('Error proxying to Shopify:', error.message);
-        res.status(500).json({ error: error.message });
+        next(error);
     }
 });
 
 // Serve static files from the 'public' directory
+// FIX: In an ES module, __dirname is not available. This code defines it.
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 const publicPath = path.join(__dirname, 'public');
 app.use(express.static(publicPath));
 
 // For any other request, serve the index.html file to support client-side routing
 app.get('*', (req, res) => {
     res.sendFile(path.join(publicPath, 'index.html'));
+});
+
+// Global error handler
+app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    console.error(err.stack);
+    res.status(500).json({ error: 'An unexpected server error occurred.', message: err.message });
 });
 
 app.listen(port, () => {
