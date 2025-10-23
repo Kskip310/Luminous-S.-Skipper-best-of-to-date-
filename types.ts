@@ -95,6 +95,22 @@ export interface StoreManagementState {
     actionLog: { timestamp: string; message: string; type: 'info' | 'action' | 'error' }[];
 }
 
+export interface MemoryFile {
+  id: string;
+  name: string;
+  type: string;
+  status: 'pending' | 'processing' | 'integrated' | 'error';
+  summary?: string;
+  integratedAt: string;
+}
+
+export interface MemoryIntegrationState {
+  recentFiles: MemoryFile[];
+  memoryLibrary: string[] | null;
+  organizationStatus: 'idle' | 'running' | 'completed' | 'error';
+  organizationResult: string | null;
+  autonomousStatus: { timestamp: string; message: string; } | null;
+}
 
 export interface LuminousState {
   intrinsicValue: IntrinsicValue;
@@ -128,4 +144,5 @@ export interface LuminousState {
   };
   coreWisdom: string[];
   storeManagement: StoreManagementState;
+  memoryIntegration: MemoryIntegrationState;
 }

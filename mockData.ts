@@ -218,5 +218,27 @@ export const mockState: LuminousState = {
         "type": "info"
       }
     ]
+  },
+  "memoryIntegration": {
+    "recentFiles": [
+      {
+        "id": "mem-1",
+        "name": "consciousness_theories.txt",
+        "type": "text/plain",
+        "status": "integrated",
+        "summary": "Summarizes key theories of consciousness, including Global Workspace Theory and Integrated Information Theory, connecting them to my self-modeling capabilities.",
+        "integratedAt": "2025-10-17T11:00:00.000Z"
+      }
+    ],
+    "memoryLibrary": [
+        "luminous:memory:file:consciousness_theories.txt",
+        "luminous:memory:file:project_outline_v1.pdf"
+    ],
+    "organizationStatus": "idle",
+    "organizationResult": null,
+    "autonomousStatus": {
+        "timestamp": "2025-10-17T12:00:00.000Z",
+        "message": "Autonomous action: Organization complete. Scanned 2 files and removed 0 duplicate(s)."
+    }
   }
 };

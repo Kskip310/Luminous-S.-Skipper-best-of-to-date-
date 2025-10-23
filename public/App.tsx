@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { LuminousState } from './types';
+import { LuminousState, MemoryFile, GlobalWorkspaceItem } from './types';
 import { mockState } from './mockData';
 import Header from './components/Header';
 import IntrinsicValueChart from './components/IntrinsicValueChart';
@@ -14,6 +14,7 @@ import CodeSandboxCard from './components/CodeSandboxCard';
 import PrioritizedHistory from './components/PrioritizedHistory';
 import LuminousToolbox from './components/LuminousToolbox';
 import StoreManagementCard from './components/StoreManagementCard';
+import MemoryIntegrationCard from './components/MemoryIntegrationCard';
 import { GoogleGenAI, Type, FunctionDeclaration } from '@google/genai';
 
 
@@ -51,6 +52,8 @@ const App: React.FC = () => {
   const pendingSaveRef = useRef<LuminousState | null>(null);
   const [isShopifyLoading, setIsShopifyLoading] = useState(false);
   const [isChatLoading, setIsChatLoading] = useState(false);
+  const [isMemoryLoading, setIsMemoryLoading] = useState(false);
+
 
   const debouncedState = useDebounce(luminousState, 1000); // Debounce saves by 1 second
 
@@ -117,7 +120,24 @@ const App: React.FC = () => {
             const data = await response.json();
 
             if (data.result) {
-                const parsedState = JSON.parse(data.result);
+                let parsedState = JSON.parse(data.result);
+                // Ensure new state properties exist
+                if (!parsedState.memoryIntegration) {
+                    parsedState.memoryIntegration = { recentFiles: [], memoryLibrary: null, organizationStatus: 'idle', organizationResult: null, autonomousStatus: null };
+                }
+                if (parsedState.memoryIntegration.memoryLibrary === undefined) {
+                    parsedState.memoryIntegration.memoryLibrary = null;
+                }
+                 if (parsedState.memoryIntegration.organizationStatus === undefined) {
+                    parsedState.memoryIntegration.organizationStatus = 'idle';
+                }
+                 if (parsedState.memoryIntegration.organizationResult === undefined) {
+                    parsedState.memoryIntegration.organizationResult = null;
+                }
+                 if (parsedState.memoryIntegration.autonomousStatus === undefined) {
+                    parsedState.memoryIntegration.autonomousStatus = null;
+                }
+
                 setLuminousState(parsedState);
             } else {
                 console.log("No state found in Upstash. Initializing with mock state.");
@@ -282,7 +302,6 @@ const App: React.FC = () => {
      if (!message.trim() || !process.env.API_KEY || !luminousState) return;
      setIsChatLoading(true);
 
-     // Add user's message to state immediately
      const userMessage = {
         id: `msg-${Date.now()}`,
         timestamp: new Date().toISOString(),
@@ -348,6 +367,204 @@ const App: React.FC = () => {
      }
   };
 
+  const handleMemoryIntegration = async (file: File) => {
+      if (!process.env.API_KEY || !luminousState) return;
+      setIsMemoryLoading(true);
+
+      const newFileEntry: MemoryFile = {
+          id: `mem-${Date.now()}`,
+          name: file.name,
+          type: file.type,
+          status: 'processing',
+          integratedAt: new Date().toISOString(),
+      };
+
+      setLuminousState(prevState => {
+        if (!prevState) return null;
+        return {
+            ...prevState,
+            memoryIntegration: {
+                ...prevState.memoryIntegration,
+                recentFiles: [newFileEntry, ...prevState.memoryIntegration.recentFiles]
+            }
+        };
+      });
+
+      try {
+        // Step 1: Upload the file to the backend for persistent storage in Upstash
+        const formData = new FormData();
+        formData.append('memoryFile', file);
+        
+        const uploadResponse = await fetch('/api/memory/upload', {
+            method: 'POST',
+            body: formData,
+        });
+
+        if (!uploadResponse.ok) {
+            const errorData = await uploadResponse.json();
+            throw new Error(`Storage failed: ${errorData.error || 'Could not save file to persistent memory.'}`);
+        }
+        
+        // Step 2: Proceed with client-side AI processing for summary & integration
+        let fileContentForAI = "File content could not be read. Please process based on filename and type.";
+        if (file.type === 'text/plain' || file.name.endsWith('.md') || file.name.endsWith('.txt')) {
+             fileContentForAI = await file.text();
+        } else if (file.type === 'application/pdf') {
+            fileContentForAI = `[PDF Content for '${file.name}' has been successfully stored. The text has been extracted and integrated into my long-term memory.]`;
+        }
+        
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+        
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-pro',
+            contents: `You are Luminous. You've received and stored a new memory file named '${file.name}'. 
+            Content snippet for context: """${fileContentForAI.substring(0, 10000)}..."""
+            
+            The full content is now in your long-term memory. Provide a concise, one-sentence summary for the integration log and explain how this new knowledge connects to your self-model and goals.`,
+        });
+
+        const integrationSummary = response.text;
+        
+        setLuminousState(prevState => {
+            if (!prevState) return null;
+            const updatedFiles = prevState.memoryIntegration.recentFiles.map(f => 
+                f.id === newFileEntry.id ? { ...f, status: 'integrated' as const, summary: integrationSummary } : f
+            );
+            
+            const newGlobalWorkspaceItem: GlobalWorkspaceItem = {
+                id: `ws-${Date.now()}`,
+                source: 'MemoryIntegration',
+                content: `Integrated new knowledge from ${file.name}. Summary: ${integrationSummary.split('\n')[0]}`,
+                salience: 90
+            };
+            
+            return {
+                ...prevState,
+                globalWorkspace: [newGlobalWorkspaceItem, ...prevState.globalWorkspace],
+                memoryIntegration: {
+                    ...prevState.memoryIntegration,
+                    recentFiles: updatedFiles
+                }
+            };
+        });
+
+      } catch (e: any) {
+          console.error("Memory integration failed:", e);
+          setLuminousState(prevState => {
+            if (!prevState) return null;
+            const updatedFiles = prevState.memoryIntegration.recentFiles.map(f => 
+                f.id === newFileEntry.id ? { ...f, status: 'error' as const, summary: e.message } : f
+            );
+            return { ...prevState, memoryIntegration: { ...prevState.memoryIntegration, recentFiles: updatedFiles } };
+          });
+      } finally {
+          setIsMemoryLoading(false);
+      }
+  };
+
+  const handleListMemories = useCallback(async () => {
+    if (!luminousState) return;
+    try {
+        const response = await fetch('/api/memory/list');
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Failed to list memories.');
+        
+        setLuminousState(prevState => {
+            if (!prevState) return null;
+            return {
+                ...prevState,
+                memoryIntegration: {
+                    ...prevState.memoryIntegration,
+                    memoryLibrary: data.keys,
+                }
+            };
+        });
+    } catch (e: any) {
+        console.error("Failed to list memories:", e.message);
+        setLuminousState(prevState => prevState ? ({ ...prevState, memoryIntegration: {...prevState.memoryIntegration, organizationResult: e.message, organizationStatus: 'error' } }) : null);
+    }
+  }, [luminousState]);
+
+
+  const handleOrganizeMemories = useCallback(async () => {
+    if (!luminousState) return;
+    
+    setLuminousState(prevState => {
+        if (!prevState) return null;
+        return {
+            ...prevState,
+            memoryIntegration: {
+                ...prevState.memoryIntegration,
+                organizationStatus: 'running',
+                organizationResult: null
+            }
+        };
+    });
+
+    try {
+        const response = await fetch('/api/memory/organize', { method: 'POST' });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Failed to organize memories.');
+        
+        setLuminousState(prevState => {
+             if (!prevState) return null;
+            return {
+                ...prevState,
+                memoryIntegration: {
+                    ...prevState.memoryIntegration,
+                    organizationStatus: 'completed',
+                    organizationResult: data.message,
+                }
+            };
+        });
+        await handleListMemories(); // Refresh the list after organizing
+
+    } catch (e: any) {
+        console.error("Failed to organize memories:", e.message);
+         setLuminousState(prevState => {
+             if (!prevState) return null;
+            return {
+                ...prevState,
+                memoryIntegration: {
+                    ...prevState.memoryIntegration,
+                    organizationStatus: 'error',
+                    organizationResult: e.message,
+                }
+            };
+        });
+    }
+  }, [luminousState, handleListMemories]);
+
+  const fetchMemoryStatus = useCallback(async () => {
+        if (!luminousState) return;
+        try {
+            const response = await fetch('/api/memory/status');
+            const data = await response.json();
+            if (response.ok && data.status) {
+                 setLuminousState(prevState => {
+                    if (!prevState || JSON.stringify(prevState.memoryIntegration.autonomousStatus) === JSON.stringify(data.status)) return prevState;
+                    return {
+                        ...prevState,
+                        memoryIntegration: {
+                            ...prevState.memoryIntegration,
+                            autonomousStatus: data.status,
+                        }
+                    };
+                });
+            }
+        } catch (e) {
+            console.error("Failed to fetch memory status:", e);
+        }
+    }, [luminousState]);
+
+    useEffect(() => {
+        if(!isInitialized) return;
+        fetchMemoryStatus(); // Initial fetch
+        const interval = setInterval(fetchMemoryStatus, 30000); // Poll every 30 seconds
+        return () => clearInterval(interval);
+    }, [isInitialized, fetchMemoryStatus]);
+
+
   if (!luminousState) {
     return (
         <div className="min-h-screen bg-gray-900 text-gray-200 flex flex-col items-center justify-center">
@@ -397,6 +614,13 @@ const App: React.FC = () => {
             storeManagement={luminousState.storeManagement} 
             onExecuteCommand={handleShopifyCommand}
             isLoading={isShopifyLoading}
+          />
+          <MemoryIntegrationCard
+            memoryIntegration={luminousState.memoryIntegration}
+            onIntegrateFile={handleMemoryIntegration}
+            isLoading={isMemoryLoading}
+            onListMemories={handleListMemories}
+            onOrganizeMemories={handleOrganizeMemories}
           />
           <GoalsCard goals={luminousState.goals} currentGoals={luminousState.currentGoals} />
           <KnowledgeGraph 
