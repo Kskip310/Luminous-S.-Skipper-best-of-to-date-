@@ -1,4 +1,3 @@
-
 import express from 'express';
 import fetch from 'node-fetch';
 import path from 'path';
@@ -232,7 +231,9 @@ app.post('/api/shopify', async (req, res, next) => {
 });
 
 // Serve static files from the 'public' directory
-// FIX: In an ES module, __dirname is not available. This code defines it.
+// FIX: In a CommonJS module (which this is compiled to), __dirname is readily available.
+// The previous import.meta.url logic was for ES Modules and would fail here.
+// FIX: Resolve '__dirname' not found error in ES module context.
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const publicPath = path.join(__dirname, 'public');

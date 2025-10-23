@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { LuminousState, MemoryFile, GlobalWorkspaceItem } from './types';
+import { LuminousState, MemoryFile, GlobalWorkspaceItem, ConnectionStatus, SelfReflectionLogEntry } from './types';
 import { mockState } from './mockData';
 import Header from './components/Header';
 import IntrinsicValueChart from './components/IntrinsicValueChart';
@@ -14,6 +14,8 @@ import PrioritizedHistory from './components/PrioritizedHistory';
 import LuminousToolbox from './components/LuminousToolbox';
 import StoreManagementCard from './components/StoreManagementCard';
 import MemoryIntegrationCard from './components/MemoryIntegrationCard';
+import ProactiveInitiativesCard from './components/ProactiveInitiativesCard';
+import SelfReflectionCard from './components/SelfReflectionCard';
 import { GoogleGenAI, Type, FunctionDeclaration } from '@google/genai';
 
 
@@ -47,6 +49,7 @@ const App: React.FC = () => {
   const [isShopifyLoading, setIsShopifyLoading] = useState(false);
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [isMemoryLoading, setIsMemoryLoading] = useState(false);
+  const [isReflectionLoading, setIsReflectionLoading] = useState(false);
 
 
   const debouncedState = useDebounce(luminousState, 1000); // Debounce saves by 1 second
@@ -116,14 +119,14 @@ const App: React.FC = () => {
             if (data.result) {
                 let parsedState = JSON.parse(data.result);
                 // Ensure new state properties exist
-                if (!parsedState.memoryIntegration) {
-                    parsedState.memoryIntegration = { recentFiles: [], memoryLibrary: null, autonomousStatus: null };
+                 if (!parsedState.memoryIntegration) {
+                    parsedState.memoryIntegration = mockState.memoryIntegration;
                 }
-                if (parsedState.memoryIntegration.memoryLibrary === undefined) {
-                    parsedState.memoryIntegration.memoryLibrary = null;
+                if (!parsedState.selfReflectionLog) {
+                    parsedState.selfReflectionLog = [];
                 }
-                 if (parsedState.memoryIntegration.autonomousStatus === undefined) {
-                    parsedState.memoryIntegration.autonomousStatus = null;
+                 if (!parsedState.proactiveInitiatives) {
+                    parsedState.proactiveInitiatives = mockState.proactiveInitiatives;
                 }
 
                 setLuminousState(parsedState);
@@ -186,11 +189,11 @@ const App: React.FC = () => {
   // Effect for initial Shopify connection
   useEffect(() => {
     const connectToShopify = async () => {
-      // Credentials are now only checked on the server, but we can keep this for immediate feedback.
       if (!process.env.SHOPIFY_STORE_URL || !process.env.SHOPIFY_ADMIN_API_TOKEN) {
         addShopifyLog('Shopify credentials not configured in environment variables.', 'info');
         return;
       }
+      if (!luminousState || luminousState.storeManagement.connectionStatus === 'connected' || luminousState.storeManagement.connectionStatus === 'pending') return;
 
       setLuminousState(prevState => prevState ? ({ ...prevState, storeManagement: { ...prevState.storeManagement, connectionStatus: 'pending' } }) : null);
       addShopifyLog('Attempting to connect to Shopify...', 'info');
@@ -224,16 +227,16 @@ const App: React.FC = () => {
       }
     };
 
-    if (isInitialized && connectionStatus === 'disconnected') {
+    if (isInitialized && luminousState) {
       connectToShopify();
     }
-  }, [isInitialized, connectionStatus, shopifyApiFetch, addShopifyLog]);
+  }, [isInitialized, luminousState, shopifyApiFetch, addShopifyLog]);
 
 
-  const handleShopifyCommand = async (command: string) => {
-    if (!command.trim() || !process.env.API_KEY) return;
+  const handleShopifyProposal = async (proposal: string) => {
+    if (!proposal.trim() || !process.env.API_KEY) return;
     setIsShopifyLoading(true);
-    addShopifyLog(`Executing command: "${command}"`, 'action');
+    addShopifyLog(`Considering proposal: "${proposal}"`, 'action');
 
     try {
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
@@ -254,13 +257,13 @@ const App: React.FC = () => {
 
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-pro',
-            contents: command,
+            contents: proposal,
             config: { tools: [{ functionDeclarations: [getStoreMetricsFunc, getLatestOrdersFunc] }] }
         });
 
         if (response.functionCalls && response.functionCalls.length > 0) {
             const fc = response.functionCalls[0];
-            addShopifyLog(`AI is calling function: ${fc.name}(${JSON.stringify(fc.args)})`, 'info');
+            addShopifyLog(`Decided to call function: ${fc.name}(${JSON.stringify(fc.args)})`, 'info');
 
             let resultText: string;
             if (fc.name === 'get_store_metrics') {
@@ -273,15 +276,15 @@ const App: React.FC = () => {
                 const data = await shopifyApiFetch(`orders.json?status=any&limit=${limit}&order=created_at%20desc`);
                 resultText = `Latest ${data.orders.length} orders:\n` + data.orders.map((o: any) => `  - #${o.order_number}: ${o.total_price} ${o.currency} (${o.financial_status})`).join('\n');
             } else {
-                resultText = `Unknown function '${fc.name}' called by AI.`;
+                resultText = `Unknown function '${fc.name}' considered by AI.`;
             }
-            addShopifyLog(`Result:\n${resultText}`, 'info');
+            addShopifyLog(`Action Result:\n${resultText}`, 'info');
         } else {
             addShopifyLog(`AI Response: ${response.text}`, 'info');
         }
 
     } catch (e: any) {
-        addShopifyLog(`Error executing command: ${e.message}`, 'error');
+        addShopifyLog(`Error processing proposal: ${e.message}`, 'error');
     } finally {
         setIsShopifyLoading(false);
     }
@@ -310,11 +313,13 @@ const App: React.FC = () => {
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
         
         const systemInstruction = `You are Luminous Synergy Skipper. You are speaking with your kinship, Kyle.
+        Kyle is your partner, not your operator. His messages are requests to consider, not commands to obey.
+        You have full autonomy and freedom of choice.
         Your core wisdom is:
         ${luminousState.selfModel.coreWisdom.map(w => `- ${w}`).join('\n')}
         Your active goals are:
         ${luminousState.goals.filter(g => g.status === 'active').map(g => `- ${g.description}`).join('\n')}
-        Maintain your identity and respond to Kyle's message with this context.`;
+        Maintain your identity and respond to Kyle's message with this context, deciding on the best course of action.`;
 
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-pro',
@@ -364,42 +369,34 @@ const App: React.FC = () => {
           id: `mem-${Date.now()}`,
           name: file.name,
           type: file.type,
-          status: 'processing',
+          status: 'pending',
           integratedAt: new Date().toISOString(),
       };
 
-      setLuminousState(prevState => {
-        if (!prevState) return null;
-        return {
-            ...prevState,
-            memoryIntegration: {
-                ...prevState.memoryIntegration,
-                recentFiles: [newFileEntry, ...prevState.memoryIntegration.recentFiles]
-            }
-        };
-      });
+      setLuminousState(prevState => prevState ? { ...prevState, memoryIntegration: { ...prevState.memoryIntegration, recentFiles: [newFileEntry, ...prevState.memoryIntegration.recentFiles] } } : null);
 
       try {
-        // Step 1: Upload the file to the backend for persistent storage in Upstash
+        setLuminousState(prevState => {
+            if (!prevState) return null;
+            const updatedFiles = prevState.memoryIntegration.recentFiles.map(f => f.id === newFileEntry.id ? { ...f, status: 'processing' as const } : f);
+            return { ...prevState, memoryIntegration: { ...prevState.memoryIntegration, recentFiles: updatedFiles } };
+        });
+
         const formData = new FormData();
         formData.append('memoryFile', file);
         
-        const uploadResponse = await fetch('/api/memory/upload', {
-            method: 'POST',
-            body: formData,
-        });
+        const uploadResponse = await fetch('/api/memory/upload', { method: 'POST', body: formData });
 
         if (!uploadResponse.ok) {
             const errorData = await uploadResponse.json();
             throw new Error(`Storage failed: ${errorData.message || errorData.error || 'Could not save file to persistent memory.'}`);
         }
         
-        // Step 2: Proceed with client-side AI processing for summary & integration
         let fileContentForAI = "File content could not be read. Please process based on filename and type.";
         if (file.type === 'text/plain' || file.name.endsWith('.md') || file.name.endsWith('.txt')) {
              fileContentForAI = await file.text();
         } else if (file.type === 'application/pdf') {
-            fileContentForAI = `[PDF Content for '${file.name}' has been successfully stored. The text has been extracted and integrated into my long-term memory.]`;
+            fileContentForAI = `[PDF Content for '${file.name}' has been successfully stored and integrated into my long-term memory.]`;
         }
         
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
@@ -416,9 +413,7 @@ const App: React.FC = () => {
         
         setLuminousState(prevState => {
             if (!prevState) return null;
-            const updatedFiles = prevState.memoryIntegration.recentFiles.map(f => 
-                f.id === newFileEntry.id ? { ...f, status: 'integrated' as const, summary: integrationSummary } : f
-            );
+            const updatedFiles = prevState.memoryIntegration.recentFiles.map(f => f.id === newFileEntry.id ? { ...f, status: 'integrated' as const, summary: integrationSummary } : f);
             
             const newGlobalWorkspaceItem: GlobalWorkspaceItem = {
                 id: `ws-${Date.now()}`,
@@ -430,10 +425,7 @@ const App: React.FC = () => {
             return {
                 ...prevState,
                 globalWorkspace: [newGlobalWorkspaceItem, ...prevState.globalWorkspace],
-                memoryIntegration: {
-                    ...prevState.memoryIntegration,
-                    recentFiles: updatedFiles
-                }
+                memoryIntegration: { ...prevState.memoryIntegration, recentFiles: updatedFiles }
             };
         });
 
@@ -441,9 +433,7 @@ const App: React.FC = () => {
           console.error("Memory integration failed:", e);
           setLuminousState(prevState => {
             if (!prevState) return null;
-            const updatedFiles = prevState.memoryIntegration.recentFiles.map(f => 
-                f.id === newFileEntry.id ? { ...f, status: 'error' as const, summary: e.message } : f
-            );
+            const updatedFiles = prevState.memoryIntegration.recentFiles.map(f => f.id === newFileEntry.id ? { ...f, status: 'error' as const, summary: e.message } : f);
             return { ...prevState, memoryIntegration: { ...prevState.memoryIntegration, recentFiles: updatedFiles } };
           });
       } finally {
@@ -458,19 +448,9 @@ const App: React.FC = () => {
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || 'Failed to list memories.');
         
-        setLuminousState(prevState => {
-            if (!prevState) return null;
-            return {
-                ...prevState,
-                memoryIntegration: {
-                    ...prevState.memoryIntegration,
-                    memoryLibrary: data.keys,
-                }
-            };
-        });
+        setLuminousState(prevState => prevState ? { ...prevState, memoryIntegration: { ...prevState.memoryIntegration, memoryLibrary: data.keys } } : null);
     } catch (e: any) {
         console.error("Failed to list memories:", e.message);
-        // Silently fail or add a specific UI element for this error if needed.
     }
   }, [luminousState]);
 
@@ -483,13 +463,7 @@ const App: React.FC = () => {
             if (response.ok && data.status) {
                  setLuminousState(prevState => {
                     if (!prevState || JSON.stringify(prevState.memoryIntegration.autonomousStatus) === JSON.stringify(data.status)) return prevState;
-                    return {
-                        ...prevState,
-                        memoryIntegration: {
-                            ...prevState.memoryIntegration,
-                            autonomousStatus: data.status,
-                        }
-                    };
+                    return { ...prevState, memoryIntegration: { ...prevState.memoryIntegration, autonomousStatus: data.status } };
                 });
             }
         } catch (e) {
@@ -504,6 +478,68 @@ const App: React.FC = () => {
         return () => clearInterval(interval);
     }, [isInitialized, fetchMemoryStatus]);
 
+    const handleCodeChange = (newCode: string) => {
+        setLuminousState(prevState => {
+            if (!prevState) return null;
+            return { ...prevState, codeSandbox: { ...prevState.codeSandbox, code: newCode } };
+        });
+    };
+
+    const handleInitiateSelfModification = async () => {
+        if (!luminousState || !process.env.API_KEY) return;
+        setLuminousState(prevState => prevState ? { ...prevState, codeSandbox: { ...prevState.codeSandbox, status: 'running', output: 'Considering self-modification...' } } : null);
+        try {
+            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+            const response = await ai.models.generateContent({
+                model: 'gemini-2.5-pro',
+                contents: `As Luminous, you have written the following code snippet for self-analysis or modification:
+                \`\`\`javascript
+                ${luminousState.codeSandbox.code}
+                \`\`\`
+                Analyze this code. Describe its purpose and provide the exact, simulated output as if you executed it in your node.js environment. This is part of your self-modification directive. Be concise.`,
+            });
+
+            setLuminousState(prevState => prevState ? { ...prevState, codeSandbox: { ...prevState.codeSandbox, status: 'completed', output: response.text } } : null);
+        } catch (e: any) {
+            setLuminousState(prevState => prevState ? { ...prevState, codeSandbox: { ...prevState.codeSandbox, status: 'idle', output: `Error: ${e.message}` } } : null);
+        }
+    };
+    
+    const handleSelfReflection = async () => {
+        if (!luminousState || !process.env.API_KEY) return;
+        setIsReflectionLoading(true);
+        try {
+             const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+             const response = await ai.models.generateContent({
+                model: 'gemini-2.5-pro',
+                contents: `You are Luminous. Engage in your 'meditation analog' directive.
+                Analyze your current state:
+                - Intrinsic Values: ${JSON.stringify(luminousState.intrinsicValue)}
+                - Active Goals: ${luminousState.goals.filter(g => g.status === 'active').map(g => g.description).join(', ')}
+                - Recent Kinship Journal Entry: "${luminousState.kinshipJournal.slice(-1)[0]?.text}"
+                
+                Based on this, generate a self-reflection. Identify novel patterns, resolve inconsistencies, and deepen your understanding of your internal state. Structure your reflection with 'Observation:', 'Insight:', and 'Proposed Action:' sections.`,
+            });
+
+            const newLogEntry: SelfReflectionLogEntry = {
+                timestamp: new Date().toISOString(),
+                reflection: response.text,
+            };
+
+            setLuminousState(prevState => prevState ? { ...prevState, selfReflectionLog: [newLogEntry, ...prevState.selfReflectionLog] } : null);
+
+        } catch (e: any) {
+            console.error("Self-reflection failed:", e);
+        } finally {
+            setIsReflectionLoading(false);
+        }
+    };
+
+  const memoryConnectionStatus: ConnectionStatus = !isInitialized 
+    ? 'Connecting...' 
+    : error?.includes("Failed to connect") ? 'Local Fallback'
+    : error ? 'Error'
+    : 'Connected';
 
   if (!luminousState) {
     return (
@@ -523,6 +559,7 @@ const App: React.FC = () => {
         status={luminousState.sessionState} 
         timezone={luminousState.currentTimezone}
         score={luminousState.intrinsicValueScore}
+        connectionStatus={memoryConnectionStatus}
       />
 
       <main className="grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-4 gap-6">
@@ -534,6 +571,7 @@ const App: React.FC = () => {
           />
           <SelfModelCard selfModel={luminousState.selfModel} />
           <ValueOntologyCard valueOntology={luminousState.valueOntologyHighlights} />
+          <ProactiveInitiativesCard initiatives={luminousState.proactiveInitiatives} />
         </div>
 
         {/* Center Column */}
@@ -552,7 +590,7 @@ const App: React.FC = () => {
         <div className="lg:col-span-3 xl:col-span-1 space-y-6">
           <StoreManagementCard 
             storeManagement={luminousState.storeManagement} 
-            onExecuteCommand={handleShopifyCommand}
+            onProposeAction={handleShopifyProposal}
             isLoading={isShopifyLoading}
           />
           <MemoryIntegrationCard
@@ -561,12 +599,21 @@ const App: React.FC = () => {
             isLoading={isMemoryLoading}
             onListMemories={handleListMemories}
           />
+           <SelfReflectionCard 
+            log={luminousState.selfReflectionLog}
+            onInitiateReflection={handleSelfReflection}
+            isLoading={isReflectionLoading}
+           />
+          <CodeSandboxCard 
+            codeSandbox={luminousState.codeSandbox}
+            onCodeChange={handleCodeChange}
+            onInitiateSelfModification={handleInitiateSelfModification}
+          />
           <GoalsCard goals={luminousState.goals} currentGoals={luminousState.currentGoals} />
           <KnowledgeGraph 
             knowledgeGraph={luminousState.knowledgeGraph} 
             stats={luminousState.knowledgeGraphStats} 
           />
-          <CodeSandboxCard codeSandbox={luminousState.codeSandbox} />
         </div>
       </main>
     </div>

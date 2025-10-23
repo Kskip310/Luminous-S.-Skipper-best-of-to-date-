@@ -143,3 +143,5 @@ export interface LuminousState {
   storeManagement: StoreManagementState;
   memoryIntegration: MemoryIntegrationState;
 }
+
+export type ConnectionStatus = 'Connected' | 'Connecting...' | 'Local Fallback' | 'Error';

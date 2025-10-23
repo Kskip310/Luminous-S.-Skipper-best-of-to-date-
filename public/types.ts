@@ -27,7 +27,7 @@ export interface SelfModel {
 }
 
 export interface ValueOntology {
-  [key: string]: number;
+  [key:string]: number;
 }
 
 export interface Goal {
@@ -109,6 +109,11 @@ export interface MemoryIntegrationState {
   autonomousStatus: { timestamp: string; message: string; } | null;
 }
 
+export interface SelfReflectionLogEntry {
+    timestamp: string;
+    reflection: string;
+}
+
 export interface LuminousState {
   intrinsicValue: IntrinsicValue;
   intrinsicValueWeights: IntrinsicValueWeights;
@@ -142,4 +147,7 @@ export interface LuminousState {
   coreWisdom: string[];
   storeManagement: StoreManagementState;
   memoryIntegration: MemoryIntegrationState;
+  selfReflectionLog: SelfReflectionLogEntry[];
 }
+
+export type ConnectionStatus = 'Connected' | 'Connecting...' | 'Local Fallback' | 'Error';

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { LuminousState, MemoryFile, GlobalWorkspaceItem } from './types';
+import { LuminousState, MemoryFile, GlobalWorkspaceItem, ConnectionStatus } from './types';
 import { mockState } from './mockData';
 import Header from './components/Header';
 import IntrinsicValueChart from './components/IntrinsicValueChart';
@@ -364,10 +364,11 @@ const App: React.FC = () => {
           id: `mem-${Date.now()}`,
           name: file.name,
           type: file.type,
-          status: 'processing',
+          status: 'pending',
           integratedAt: new Date().toISOString(),
       };
 
+      // Immediate UI update to show the file is being handled
       setLuminousState(prevState => {
         if (!prevState) return null;
         return {
@@ -380,7 +381,16 @@ const App: React.FC = () => {
       });
 
       try {
-        // Step 1: Upload the file to the backend for persistent storage in Upstash
+        // Update status to 'processing' before starting the upload
+        setLuminousState(prevState => {
+            if (!prevState) return null;
+            const updatedFiles = prevState.memoryIntegration.recentFiles.map(f => 
+                f.id === newFileEntry.id ? { ...f, status: 'processing' as const } : f
+            );
+            return { ...prevState, memoryIntegration: { ...prevState.memoryIntegration, recentFiles: updatedFiles } };
+        });
+
+        // Step 1: Upload the file to the backend
         const formData = new FormData();
         formData.append('memoryFile', file);
         
@@ -394,7 +404,7 @@ const App: React.FC = () => {
             throw new Error(`Storage failed: ${errorData.message || errorData.error || 'Could not save file to persistent memory.'}`);
         }
         
-        // Step 2: Proceed with client-side AI processing for summary & integration
+        // Step 2: Proceed with client-side AI processing
         let fileContentForAI = "File content could not be read. Please process based on filename and type.";
         if (file.type === 'text/plain' || file.name.endsWith('.md') || file.name.endsWith('.txt')) {
              fileContentForAI = await file.text();
@@ -504,6 +514,11 @@ const App: React.FC = () => {
         return () => clearInterval(interval);
     }, [isInitialized, fetchMemoryStatus]);
 
+  const memoryConnectionStatus: ConnectionStatus = !isInitialized 
+    ? 'Connecting...' 
+    : error?.includes("Failed to connect") ? 'Local Fallback'
+    : error ? 'Error'
+    : 'Connected';
 
   if (!luminousState) {
     return (
@@ -523,6 +538,7 @@ const App: React.FC = () => {
         status={luminousState.sessionState} 
         timezone={luminousState.currentTimezone}
         score={luminousState.intrinsicValueScore}
+        connectionStatus={memoryConnectionStatus}
       />
 
       <main className="grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-4 gap-6">
