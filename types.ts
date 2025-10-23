@@ -65,12 +65,11 @@ export interface PrioritizedHistoryItem {
   intrinsicValueScore: number;
 }
 
-export interface KinshipJournalEntry {
+export interface ChatMessage {
   id: string;
   timestamp: string;
-  prompt?: string;
-  entry_text?: string;
-  source: string;
+  speaker: 'Kyle' | 'Luminous';
+  text: string;
 }
 
 export interface CodeSandbox {
@@ -107,7 +106,7 @@ export interface LuminousState {
   goals: Goal[];
   knowledgeGraph: KnowledgeGraph;
   prioritizedHistory: PrioritizedHistoryItem[];
-  kinshipJournal: KinshipJournalEntry[];
+  kinshipJournal: ChatMessage[];
   codeSandbox: CodeSandbox;
   currentTimezone: string;
   sessionState: string;

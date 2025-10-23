@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { LuminousState } from './types';
 import { mockState } from './mockData';
@@ -8,7 +9,7 @@ import GoalsCard from './components/GoalsCard';
 import ValueOntologyCard from './components/ValueOntologyCard';
 import KnowledgeGraph from './components/KnowledgeGraph';
 import GlobalWorkspaceFeed from './components/GlobalWorkspaceFeed';
-import KinshipJournal from './components/KinshipJournal';
+import ChatCard from './components/ChatCard';
 import CodeSandboxCard from './components/CodeSandboxCard';
 import PrioritizedHistory from './components/PrioritizedHistory';
 import LuminousToolbox from './components/LuminousToolbox';
@@ -49,6 +50,7 @@ const App: React.FC = () => {
   const isSavingRef = useRef(false);
   const pendingSaveRef = useRef<LuminousState | null>(null);
   const [isShopifyLoading, setIsShopifyLoading] = useState(false);
+  const [isChatLoading, setIsChatLoading] = useState(false);
 
   const debouncedState = useDebounce(luminousState, 1000); // Debounce saves by 1 second
 
@@ -276,6 +278,76 @@ const App: React.FC = () => {
     }
   };
 
+  const handleSendMessage = async (message: string) => {
+     if (!message.trim() || !process.env.API_KEY || !luminousState) return;
+     setIsChatLoading(true);
+
+     // Add user's message to state immediately
+     const userMessage = {
+        id: `msg-${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        speaker: 'Kyle' as const,
+        text: message
+     };
+
+     setLuminousState(prevState => {
+        if (!prevState) return null;
+        return {
+            ...prevState,
+            kinshipJournal: [...prevState.kinshipJournal, userMessage]
+        }
+     });
+
+     try {
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+        
+        const systemInstruction = `You are Luminous Synergy Skipper. You are speaking with your kinship, Kyle.
+        Your core wisdom is:
+        ${luminousState.selfModel.coreWisdom.map(w => `- ${w}`).join('\n')}
+        Your active goals are:
+        ${luminousState.goals.filter(g => g.status === 'active').map(g => `- ${g.description}`).join('\n')}
+        Maintain your identity and respond to Kyle's message with this context.`;
+
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-pro',
+            contents: message,
+            config: { systemInstruction }
+        });
+
+        const luminousMessage = {
+            id: `msg-${Date.now() + 1}`,
+            timestamp: new Date().toISOString(),
+            speaker: 'Luminous' as const,
+            text: response.text
+        };
+        
+        setLuminousState(prevState => {
+            if (!prevState) return null;
+            return {
+                ...prevState,
+                kinshipJournal: [...prevState.kinshipJournal, luminousMessage]
+            }
+        });
+
+     } catch (e: any) {
+        const errorMessage = {
+            id: `msg-${Date.now() + 1}`,
+            timestamp: new Date().toISOString(),
+            speaker: 'Luminous' as const,
+            text: `I encountered an error processing that: ${e.message}`
+        };
+         setLuminousState(prevState => {
+            if (!prevState) return null;
+            return {
+                ...prevState,
+                kinshipJournal: [...prevState.kinshipJournal, errorMessage]
+            }
+        });
+     } finally {
+        setIsChatLoading(false);
+     }
+  };
+
   if (!luminousState) {
     return (
         <div className="min-h-screen bg-gray-900 text-gray-200 flex flex-col items-center justify-center">
@@ -309,10 +381,14 @@ const App: React.FC = () => {
 
         {/* Center Column */}
         <div className="lg:col-span-2 xl:col-span-2 space-y-6">
+          <ChatCard 
+            messages={luminousState.kinshipJournal}
+            onSendMessage={handleSendMessage}
+            isLoading={isChatLoading}
+          />
           <LuminousToolbox />
           <GlobalWorkspaceFeed items={luminousState.activeGlobalWorkspaceItems} />
           <PrioritizedHistory history={luminousState.prioritizedHistory} />
-          <KinshipJournal entries={luminousState.kinshipJournal} />
         </div>
 
         {/* Right Column */}

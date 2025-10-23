@@ -1,9 +1,8 @@
-
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import Card from './Card';
-import { GoogleGenAI, Modality, LiveServerMessage, Blob, GenerateContentResponse, LiveSession, VideoGenerationOperation } from "@google/genai";
+import { GoogleGenAI, Modality, GenerateContentResponse, VideoGenerationOperation } from "@google/genai";
 
-type Tab = 'generate' | 'analyze' | 'converse' | 'query';
+type Tab = 'generate' | 'analyze' | 'query';
 
 // Helper to convert Blob/File to base64
 const blobToBase64 = (blob: File | globalThis.Blob): Promise<string> => {
@@ -18,46 +17,6 @@ const blobToBase64 = (blob: File | globalThis.Blob): Promise<string> => {
     reader.readAsDataURL(blob);
   });
 };
-
-
-// Audio helper functions
-function decode(base64: string) {
-  const binaryString = atob(base64);
-  const len = binaryString.length;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
-  return bytes;
-}
-
-async function decodeAudioData(
-  data: Uint8Array,
-  ctx: AudioContext,
-  sampleRate: number,
-  numChannels: number,
-): Promise<AudioBuffer> {
-  const dataInt16 = new Int16Array(data.buffer);
-  const frameCount = dataInt16.length / numChannels;
-  const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
-
-  for (let channel = 0; channel < numChannels; channel++) {
-    const channelData = buffer.getChannelData(channel);
-    for (let i = 0; i < frameCount; i++) {
-      channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
-    }
-  }
-  return buffer;
-}
-
-function encode(bytes: Uint8Array) {
-  let binary = '';
-  const len = bytes.byteLength;
-  for (let i = 0; i < len; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary);
-}
 
 const LuminousToolbox: React.FC = () => {
   const [activeTab, setActiveTab] = useState<Tab>('generate');
@@ -77,17 +36,6 @@ const LuminousToolbox: React.FC = () => {
   const [analyzeImageUrl, setAnalyzeImageUrl] = useState<string | null>(null);
   const [analyzedResult, setAnalyzedResult] = useState<{imageUrl?: string, text?: string} | null>(null);
 
-  // Converse state
-  const [isConversing, setIsConversing] = useState(false);
-  const [transcriptionLog, setTranscriptionLog] = useState<{speaker: 'user' | 'model', text: string}[]>([]);
-  const liveSessionRef = useRef<LiveSession | null>(null);
-  const audioInfrastructureRef = useRef<{ inputCtx: AudioContext, outputCtx: AudioContext, stream: MediaStream, processor: ScriptProcessorNode, sources: Set<AudioBufferSourceNode>, nextStartTime: number } | null>(null);
-  const currentTranscriptionRef = useRef({ input: '', output: '' });
-
-  // TTS State
-  const [ttsText, setTtsText] = useState("Hello, I am Luminous. How can I assist you today?");
-  const [isSpeaking, setIsSpeaking] = useState(false);
-  
   // Query state
   const [queryPrompt, setQueryPrompt] = useState('What are some good Italian restaurants nearby?');
   const [queryType, setQueryType] = useState<'search' | 'maps'>('maps');
@@ -219,157 +167,6 @@ const LuminousToolbox: React.FC = () => {
     }
   };
 
-  const toggleConversation = async () => {
-    if (isConversing) {
-        // Stop conversation
-        setIsConversing(false);
-        if (liveSessionRef.current) {
-            liveSessionRef.current.close();
-            liveSessionRef.current = null;
-        }
-        if (audioInfrastructureRef.current) {
-            audioInfrastructureRef.current.stream.getTracks().forEach(track => track.stop());
-            if (audioInfrastructureRef.current.inputCtx.state !== 'closed') audioInfrastructureRef.current.inputCtx.close();
-            if (audioInfrastructureRef.current.outputCtx.state !== 'closed') audioInfrastructureRef.current.outputCtx.close();
-            audioInfrastructureRef.current = null;
-        }
-        setTranscriptionLog([]);
-    } else {
-        // Start conversation
-        setIsLoading(true);
-        setLoadingMessage('Initializing conversation...');
-        setError(null);
-
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            const inputCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
-            const outputCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
-            
-            audioInfrastructureRef.current = {
-                inputCtx,
-                outputCtx,
-                stream,
-                processor: null as any,
-                sources: new Set(),
-                nextStartTime: 0,
-            };
-
-            const ai = getAiClient();
-            const sessionPromise = ai.live.connect({
-                model: 'gemini-2.5-flash-native-audio-preview-09-2025',
-                config: {
-                    responseModalities: [Modality.AUDIO],
-                    inputAudioTranscription: {},
-                    outputAudioTranscription: {},
-                },
-                callbacks: {
-                    onopen: () => {
-                        if (!audioInfrastructureRef.current) return;
-                        const source = inputCtx.createMediaStreamSource(stream);
-                        const processor = inputCtx.createScriptProcessor(4096, 1, 1);
-                        processor.onaudioprocess = (e) => {
-                            const inputData = e.inputBuffer.getChannelData(0);
-                            const pcmBlob: Blob = {
-                                data: encode(new Uint8Array(new Int16Array(inputData.map(f => f * 32768)).buffer)),
-                                mimeType: 'audio/pcm;rate=16000',
-                            };
-                            sessionPromise.then((session) => session.sendRealtimeInput({ media: pcmBlob }));
-                        };
-                        source.connect(processor);
-                        processor.connect(inputCtx.destination);
-                        audioInfrastructureRef.current.processor = processor;
-                        setIsLoading(false);
-                        setLoadingMessage('');
-                        setIsConversing(true);
-                    },
-                    onmessage: async (message: LiveServerMessage) => {
-                        if (message.serverContent?.inputTranscription) {
-                            currentTranscriptionRef.current.input += message.serverContent.inputTranscription.text;
-                        }
-                        if (message.serverContent?.outputTranscription) {
-                             currentTranscriptionRef.current.output += message.serverContent.outputTranscription.text;
-                        }
-                        if(message.serverContent?.turnComplete) {
-                            const fullInput = currentTranscriptionRef.current.input;
-                            const fullOutput = currentTranscriptionRef.current.output;
-                            if (fullInput.trim() || fullOutput.trim()){
-                                setTranscriptionLog(prev => [
-                                    ...prev,
-                                    { speaker: 'user', text: fullInput },
-                                    { speaker: 'model', text: fullOutput },
-                                ]);
-                            }
-                            currentTranscriptionRef.current = { input: '', output: '' };
-                        }
-
-                        const audioData = message.serverContent?.modelTurn?.parts[0]?.inlineData?.data;
-                        if (audioData) {
-                            const audioInfra = audioInfrastructureRef.current;
-                            if (!audioInfra || audioInfra.outputCtx.state === 'closed') return;
-
-                            const decoded = decode(audioData);
-                            const buffer = await decodeAudioData(decoded, audioInfra.outputCtx, 24000, 1);
-                            const source = audioInfra.outputCtx.createBufferSource();
-                            source.buffer = buffer;
-                            source.connect(audioInfra.outputCtx.destination);
-                            
-                            const currentTime = audioInfra.outputCtx.currentTime;
-                            const startTime = Math.max(currentTime, audioInfra.nextStartTime);
-                            source.start(startTime);
-
-                            audioInfra.nextStartTime = startTime + buffer.duration;
-                            audioInfra.sources.add(source);
-                            source.onended = () => audioInfra.sources.delete(source);
-                        }
-                    },
-                    onclose: () => {
-                        setIsConversing(false);
-                    },
-                    onerror: (e) => {
-                        setError(`Conversation error: ${e.type}`);
-                        setIsConversing(false);
-                    }
-                }
-            });
-            liveSessionRef.current = await sessionPromise;
-        } catch (e: any) {
-            setError(`Failed to start conversation: ${e.message}`);
-            setIsLoading(false);
-        }
-    }
-  };
-
-  const handleSpeak = async () => {
-    setIsSpeaking(true);
-    setError(null);
-    try {
-      const ai = getAiClient();
-      const response: GenerateContentResponse = await ai.models.generateContent({
-        model: "gemini-2.5-flash-preview-tts",
-        contents: [{ parts: [{ text: ttsText }] }],
-        config: {
-          responseModalities: [Modality.AUDIO],
-          speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } } },
-        },
-      });
-      const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-      if (base64Audio) {
-        const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
-        const audioBuffer = await decodeAudioData(decode(base64Audio), audioContext, 24000, 1);
-        const source = audioContext.createBufferSource();
-        source.buffer = audioBuffer;
-        source.connect(audioContext.destination);
-        source.start();
-        source.onended = () => setIsSpeaking(false);
-      } else {
-         setIsSpeaking(false);
-      }
-    } catch (e: any) {
-      setError(e.message);
-      setIsSpeaking(false);
-    }
-  };
-
   const handleQuery = async () => {
     setIsLoading(true);
     setLoadingMessage('Querying Gemini...');
@@ -477,40 +274,6 @@ const LuminousToolbox: React.FC = () => {
             )}
           </div>
         );
-      case 'converse':
-        return (
-          <div className="space-y-6">
-            <div>
-                <h3 className="font-semibold text-cyan-400 mb-2">Real-time Conversation</h3>
-                <button onClick={toggleConversation} disabled={isLoading} className={`w-full font-bold py-2 px-4 rounded ${isConversing ? 'bg-red-600 hover:bg-red-500' : 'bg-green-600 hover:bg-green-500'} disabled:bg-gray-500`}>
-                    {isLoading ? loadingMessage : (isConversing ? 'Stop Conversation' : 'Start Conversation')}
-                </button>
-                <div className="mt-4 p-2 bg-gray-900/50 rounded-md min-h-[100px] max-h-[200px] overflow-y-auto">
-                    {transcriptionLog.map((entry, index) => (
-                        <div key={index}>
-                           {entry.text && (
-                             <p className={entry.speaker === 'user' ? 'text-cyan-300' : 'text-purple-300'}>
-                                <strong>{entry.speaker === 'user' ? 'You:' : 'Luminous:'}</strong> {entry.text}
-                             </p>
-                           )}
-                        </div>
-                    ))}
-                </div>
-            </div>
-            <div className="border-t border-gray-700 pt-4">
-                 <h3 className="font-semibold text-cyan-400 mb-2">Text-to-Speech</h3>
-                 <textarea
-                    className="w-full bg-gray-900 border border-gray-600 rounded-md p-2 focus:ring-cyan-500 focus:border-cyan-500"
-                    rows={2}
-                    value={ttsText}
-                    onChange={(e) => setTtsText(e.target.value)}
-                />
-                <button onClick={handleSpeak} disabled={isSpeaking} className="w-full mt-2 bg-purple-600 hover:bg-purple-500 disabled:bg-gray-500 text-white font-bold py-2 px-4 rounded">
-                    {isSpeaking ? 'Speaking...' : 'Speak Text'}
-                </button>
-            </div>
-          </div>
-        );
       case 'query':
         return (
           <div className="space-y-4">
@@ -567,7 +330,6 @@ const LuminousToolbox: React.FC = () => {
       <div className="flex border-b border-cyan-500/20">
         <TabButton tabId="generate" label="Generate" />
         <TabButton tabId="analyze" label="Analyze" />
-        <TabButton tabId="converse" label="Converse" />
         <TabButton tabId="query" label="Query" />
       </div>
       <div className="pt-4">
