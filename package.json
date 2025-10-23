@@ -1,23 +1,22 @@
 {
-  "name": "luminous-s.-skipper-ui",
-  "private": true,
-  "version": "0.0.0",
-  "type": "module",
+  "name": "luminous-server",
+  "version": "1.0.0",
+  "description": "Backend server and frontend for Luminous UI",
+  "main": "dist/server.js",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
+    "start": "node dist/server.js",
+    "build": "tsc && cp -r public/* dist/public/",
+    "dev": "ts-node server.ts"
   },
   "dependencies": {
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0",
-    "recharts": "^3.3.0",
-    "@google/genai": "^1.26.0"
+    "express": "^4.19.2",
+    "node-fetch": "^2.7.0"
   },
   "devDependencies": {
-    "@types/node": "^22.14.0",
-    "@vitejs/plugin-react": "^5.0.0",
-    "typescript": "~5.8.2",
-    "vite": "^6.2.0"
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.12.12",
+    "@types/node-fetch": "^2.6.11",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.5"
   }
 }
