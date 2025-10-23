@@ -12,6 +12,7 @@ import KinshipJournal from './components/KinshipJournal';
 import CodeSandboxCard from './components/CodeSandboxCard';
 import PrioritizedHistory from './components/PrioritizedHistory';
 import LuminousToolbox from './components/LuminousToolbox';
+import StoreManagementCard from './components/StoreManagementCard';
 
 // --- Upstash Configuration ---
 const UPSTASH_URL = process.env.UPSTASH_REDIS_REST_URL;
@@ -160,7 +161,6 @@ const App: React.FC = () => {
         <div className="lg:col-span-1 xl:col-span-1 space-y-6">
           <IntrinsicValueChart 
             data={luminousState.intrinsicValue} 
-            // FIX: Removed typo 'l' before luminousState.
             weights={luminousState.intrinsicValueWeights} 
           />
           <SelfModelCard selfModel={luminousState.selfModel} />
@@ -177,6 +177,7 @@ const App: React.FC = () => {
 
         {/* Right Column */}
         <div className="lg:col-span-3 xl:col-span-1 space-y-6">
+          <StoreManagementCard storeManagement={luminousState.storeManagement} />
           <GoalsCard goals={luminousState.goals} currentGoals={luminousState.currentGoals} />
           <KnowledgeGraph 
             knowledgeGraph={luminousState.knowledgeGraph} 

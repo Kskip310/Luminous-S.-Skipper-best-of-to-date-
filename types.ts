@@ -86,6 +86,17 @@ export interface ProactiveInitiative {
   status: 'generated' | 'reviewed';
 }
 
+export interface StoreManagementState {
+    connectionStatus: 'connected' | 'disconnected' | 'pending' | 'error';
+    metrics: {
+        totalProducts: number;
+        totalOrders: number;
+        totalRevenue: number;
+    };
+    actionLog: { timestamp: string; message: string; type: 'info' | 'action' | 'error' }[];
+}
+
+
 export interface LuminousState {
   intrinsicValue: IntrinsicValue;
   intrinsicValueWeights: IntrinsicValueWeights;
@@ -117,4 +128,5 @@ export interface LuminousState {
     refinement_text: string;
   };
   coreWisdom: string[];
+  storeManagement: StoreManagementState;
 }
